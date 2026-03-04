@@ -10,19 +10,6 @@
 
 #include "Lpf2Hub.h"
 
-/** 
- * Callback if a scan has ended with the results of found devices 
- * only needed to enforce the non blocking scan start
- */
-void scanEndedCallback(NimBLEScanResults results)
-{
-    log_d("Number of devices: %d", results.getCount());
-    for (int i = 0; i < results.getCount(); i++)
-    {
-        log_d("device[%d]: %s", i, results.getDevice(i)->toString().c_str());
-    }
-}
-
 /**
  * Derived class which could be added as an instance to the BLEClient for callback handling
  * The current hub is given as a parameter in the constructor to be able to set the 
@@ -43,11 +30,11 @@ public:
     {
     }
 
-    void onDisconnect(BLEClient *bleClient)
+    void onDisconnect(BLEClient *bleClient, int reason)
     {
         _lpf2Hub->_isConnecting = false;
         _lpf2Hub->_isConnected = false;
-        log_d("disconnected client");
+        log_d("disconnected client, reason: %d", reason);
     }
 };
 
@@ -73,14 +60,28 @@ public:
         }
     }
 
+    // NimBLE 2.x calls onDiscovered() first, then onResult() only after scan response.
+    // Check for the hub in both callbacks to ensure detection works regardless of
+    // whether the service UUID is in the advertisement or the scan response.
+    void onDiscovered(const NimBLEAdvertisedDevice* advertisedDevice) override
+    {
+        checkForHub(advertisedDevice);
+    }
+
     void onResult(const NimBLEAdvertisedDevice* advertisedDevice) override
     {
-        //Found a device, check if the service is contained and optional if address fits requested address
+        checkForHub(advertisedDevice);
+    }
+
+    void checkForHub(const NimBLEAdvertisedDevice* advertisedDevice)
+    {
+        // Already found a hub, skip further checks
+        if (_lpf2Hub->_isConnecting) return;
+
         log_d("advertised device: %s", advertisedDevice->toString().c_str());
 
         if (advertisedDevice->haveServiceUUID() && advertisedDevice->getServiceUUID().equals(_lpf2Hub->_bleUuid) && (_lpf2Hub->_requestedDeviceAddress == nullptr || (_lpf2Hub->_requestedDeviceAddress && advertisedDevice->getAddress().equals(*_lpf2Hub->_requestedDeviceAddress))))
         {
-            advertisedDevice->getScan()->stop();
             _lpf2Hub->_pServerAddress = new BLEAddress(advertisedDevice->getAddress());
             _lpf2Hub->_hubName = advertisedDevice->getName();
 
@@ -118,7 +119,11 @@ public:
                     }
                 }
             }
+            // Set _isConnecting BEFORE stop() to prevent race condition:
+            // stop() causes the blocking getResults() on the main task to return,
+            // and loop() must see _isConnecting=true before it rescans.
             _lpf2Hub->_isConnecting = true;
+            advertisedDevice->getScan()->stop();
         }
     }
 };
@@ -835,9 +840,13 @@ void Lpf2Hub::init()
     pBLEScan->setScanCallbacks(_advertiseDeviceCallback);
 
     pBLEScan->setActiveScan(true);
-    // start method with callback function to enforce the non blocking scan. If no callback function is used,
-    // the scan starts in a blocking manner
-    pBLEScan->start(_scanDuration);
+    pBLEScan->clearResults();
+    // NimBLE 2.x: start() is non-blocking, use getResults() for blocking scan.
+    // Callbacks (onDiscovered/onResult) fire during the blocking wait.
+    // When hub is found, checkForHub() sets _isConnecting=true and calls stop(),
+    // which causes getResults() to return early.
+    // NimBLE 2.x uses milliseconds (NimBLE 1.x used seconds)
+    pBLEScan->getResults(_scanDuration * 1000);
 }
 
 /**

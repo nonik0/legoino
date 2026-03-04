@@ -8,7 +8,16 @@ It is also possible to use the "old" Power Function IR Modules and control them 
 
 ## About this fork
 
-This fork adds support for [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) version 2.x
+This fork adds full support for [NimBLE-Arduino](https://github.com/h2zero/NimBLE-Arduino) version 2.x (tested with 2.3.7).
+
+### NimBLE 2.x changes in `Lpf2Hub.cpp`
+
+- **Scan API**: `pBLEScan->start()` replaced with blocking `pBLEScan->getResults()` (NimBLE 2.x `start()` is non-blocking)
+- **Scan duration**: Converted from seconds to milliseconds (NimBLE 2.x API change)
+- **Scan callbacks**: Added `onDiscovered()` alongside `onResult()` (NimBLE 2.x fires `onDiscovered()` first for advertisements, `onResult()` after scan response)
+- **Disconnect callback**: `onDisconnect()` signature updated with `int reason` parameter (required by NimBLE 2.x)
+- **Race condition fix**: `_isConnecting` set before `stop()` in scan callback to prevent main task from rescanning before state is updated
+- **Duplicate filtering**: `clearResults()` called before each scan to avoid stale results
 
 ## Arduino Hardware and dependent libraries
 
