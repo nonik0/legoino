@@ -840,13 +840,7 @@ void Lpf2Hub::init()
     pBLEScan->setScanCallbacks(_advertiseDeviceCallback);
 
     pBLEScan->setActiveScan(true);
-    pBLEScan->clearResults();
-    // NimBLE 2.x: start() is non-blocking, use getResults() for blocking scan.
-    // Callbacks (onDiscovered/onResult) fire during the blocking wait.
-    // When hub is found, checkForHub() sets _isConnecting=true and calls stop(),
-    // which causes getResults() to return early.
-    // NimBLE 2.x uses milliseconds (NimBLE 1.x used seconds)
-    pBLEScan->getResults(_scanDuration * 1000);
+    pBLEScan->start(_scanDuration);
 }
 
 /**
